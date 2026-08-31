@@ -27,6 +27,8 @@ export interface PositionView {
   healthFactor: string;
   liquidationPriceLoanUnitsPerBtc: string | null;
   isLiquidatable: boolean;
+  lltvWad: string;
+  currentPriceLoanUnitsPerBtc: string;
 }
 
 export interface RiskBucket {

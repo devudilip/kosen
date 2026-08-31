@@ -7,6 +7,13 @@ settings:
 importers:
 
   .:
+    dependencies:
+      '@kosen/ai':
+        specifier: workspace:*
+        version: link:packages/ai
+      '@kosen/engine':
+        specifier: workspace:*
+        version: link:packages/engine
     devDependencies:
       '@types/node':
         specifier: ^22.10.2
@@ -26,6 +33,9 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.32.1
         version: 0.32.1
+      '@kosen/engine':
+        specifier: workspace:*
+        version: link:../engine
       '@kosen/tachi-kit':
         specifier: workspace:*
         version: link:../tachi-kit

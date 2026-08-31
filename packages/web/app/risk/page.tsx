@@ -1,10 +1,19 @@
 import Link from "next/link";
+import { summarizeRisk } from "@kosen/ai";
 import { engine } from "@/lib/engine-client";
 import { centsToUsd } from "@/lib/format";
 
 export default async function RiskPage() {
-  const [risk, positions] = await Promise.all([engine.getRisk(), engine.listPositions()]);
+  const [risk, positions, market] = await Promise.all([engine.getRisk(), engine.listPositions(), engine.listMarkets()]);
   const maxCount = Math.max(1, ...risk.buckets.map((b) => b.count));
+  const totalOpenPositions = positions.filter((p) => p.status === "open").length;
+
+  const narrative = await summarizeRisk({
+    loanAssetSymbol: market[0]?.loanAsset ?? "satUSD",
+    buckets: risk.buckets.map((b) => ({ ...b, exposureLoanUnits: BigInt(b.exposureLoanUnits) })),
+    atRiskCount: risk.atRiskPositionIds.length,
+    totalOpenPositions,
+  });
 
   return (
     <div className="space-y-8">
@@ -14,6 +23,16 @@ export default async function RiskPage() {
           At-risk positions by LTV bucket. The AI narrates this for lenders; it never decides a liquidation —
           that is <code>LTV &gt; LLTV</code>, deterministic, in <code>engine/liquidation.ts</code>.
         </p>
+      </div>
+
+      <div className="rounded-lg border border-black/10 bg-black/[0.02] p-4">
+        <div className="text-xs font-medium uppercase tracking-wide text-black/40">AI stress narrative</div>
+        <p className="mt-2 text-sm">{narrative.narrative}</p>
+        {narrative.isReplay && (
+          <p className="mt-2 text-xs text-black/40">
+            Offline mode (no ANTHROPIC_API_KEY) — a template built directly from the numbers above, no LLM call.
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">

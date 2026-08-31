@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.32.1",
+    "@kosen/engine": "workspace:*",
     "@kosen/tachi-kit": "workspace:*",
     "better-sqlite3": "^11.7.0"
   },

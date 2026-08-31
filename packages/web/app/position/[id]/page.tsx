@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { engine } from "@/lib/engine-client";
 import { centsToUsd, pctFromDecimalString, satsToBtc } from "@/lib/format";
+import { CopilotPanel } from "./copilot-panel";
 
 export default async function PositionPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -66,6 +67,8 @@ export default async function PositionPage({ params }: { params: Promise<{ id: s
           Risk dashboard
         </Link>
       </div>
+
+      <CopilotPanel positionId={position.id} />
     </div>
   );
 }

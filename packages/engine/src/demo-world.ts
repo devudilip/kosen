@@ -134,6 +134,11 @@ export interface PositionView {
   healthFactor: string;
   liquidationPriceLoanUnitsPerBtc: string | null;
   isLiquidatable: boolean;
+  // Exact bigint fields (WAD/sats), for callers that need to feed this back
+  // into engine math (e.g. the copilot) without re-parsing the rounded
+  // decimal strings above.
+  lltvWad: string;
+  currentPriceLoanUnitsPerBtc: string;
 }
 
 export function positionView(world: World, positionId: string): PositionView | undefined {
@@ -156,6 +161,8 @@ export function positionView(world: World, positionId: string): PositionView | u
     healthFactor: wadToDecimalString(hf),
     liquidationPriceLoanUnitsPerBtc: liqPrice === null ? null : liqPrice.toString(),
     isLiquidatable: isLiquidatable(debt, position.collateralSats, world.priceLoanUnitsPerBtc, lltv),
+    lltvWad: lltv.toString(),
+    currentPriceLoanUnitsPerBtc: world.priceLoanUnitsPerBtc.toString(),
   };
 }
 

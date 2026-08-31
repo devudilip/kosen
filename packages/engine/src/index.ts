@@ -24,3 +24,5 @@ export * from "./position.js";
 export * from "./liquidation.js";
 export * from "./liquidator.js";
 export * from "./ledger.js";
+export * from "./scenario.js";
+export * from "./demo-world.js";
