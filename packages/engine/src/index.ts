@@ -26,3 +26,6 @@ export * from "./liquidator.js";
 export * from "./ledger.js";
 export * from "./scenario.js";
 export * from "./demo-world.js";
+export * from "./collateral-port.js";
+export * from "./collateral-sim.js";
+export * from "./collateral-tachi.js";

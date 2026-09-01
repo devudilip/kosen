@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { collateralValue, healthFactor, isLiquidatable, liquidationPrice, loanToValue, SATS_PER_BTC } from "./health.js";
+import {
+  collateralValue,
+  healthFactor,
+  isLiquidatable,
+  liquidationPrice,
+  loanToValue,
+  SATS_PER_BTC,
+  shareForLiquidation,
+} from "./health.js";
 import { pct, WAD } from "./units.js";
 
 // 1 BTC collateral, price 100,000 satUSD-cents-equivalent-units per BTC for
@@ -101,5 +109,44 @@ describe("liquidationPrice", () => {
     const price = liquidationPrice(borrowAssets, ONE_BTC, lltv)!;
     expect(isLiquidatable(borrowAssets, ONE_BTC, price - 1n, lltv)).toBe(true);
     expect(isLiquidatable(borrowAssets, ONE_BTC, price + 1_000n, lltv)).toBe(false);
+  });
+});
+
+describe("shareForLiquidation", () => {
+  it("matches the value verified live in scripts/04-spike-musig-vault.ts", () => {
+    // 300,000 sats collateral, 86% LLTV, 5% penalty -> 270,900 sats,
+    // independently confirmed on regtest (0.00270900 BTC output).
+    expect(shareForLiquidation(300_000n, pct(86), 500n)).toBe(270_900n);
+  });
+
+  it("is independent of debt/price — only collateral, lltv, and penalty matter", () => {
+    // This is the whole point of the formula: priceLiq is derived FROM debt
+    // via lltv, so debt cancels out of share algebraically. Passing wildly
+    // different debt amounts through liquidationPrice must still land on
+    // the exact same share for the same collateral/lltv/penalty.
+    const share = shareForLiquidation(300_000n, pct(86), 500n);
+    // Excludes pathologically tiny debts (e.g. 1 sat), where liquidationPrice
+    // truncates so much of its own bigint division that re-deriving share
+    // from it amplifies rounding error — not a formula bug, just not a
+    // meaningful regime to assert tight agreement in.
+    for (const debt of [10_000n, 80_000n, 10_000_000n]) {
+      const priceLiq = liquidationPrice(debt, 300_000n, pct(86))!;
+      const debtWithIncentive = (debt * 10_500n) / 10_000n;
+      const impliedShare = (debtWithIncentive * SATS_PER_BTC) / priceLiq;
+      // Integer rounding across the two independent formulas can differ by
+      // a few sats at most; require them to land within a whisker of the
+      // authoritative closed-form value.
+      const diff = impliedShare > share ? impliedShare - share : share - impliedShare;
+      expect(diff).toBeLessThan(5n);
+    }
+  });
+
+  it("caps at 100% of collateral when lltv * (1+penalty) exceeds 1", () => {
+    // e.g. a 99% LLTV with a 10% penalty would imply seizing 108.9% of collateral.
+    expect(shareForLiquidation(1_000_000n, pct(99), 1_000n)).toBe(1_000_000n);
+  });
+
+  it("is 0 with no collateral", () => {
+    expect(shareForLiquidation(0n, pct(86), 500n)).toBe(0n);
   });
 });

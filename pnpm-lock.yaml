@@ -64,6 +64,15 @@ importers:
       '@kosen/tachi-kit':
         specifier: workspace:*
         version: link:../tachi-kit
+      '@tachibtc/taurus-vault-core':
+        specifier: 0.3.4
+        version: 0.3.4(react@19.2.8)(typescript@5.9.3)
+      '@tachibtc/taurus-wallet-aggregator':
+        specifier: 0.4.5
+        version: 0.4.5(react@19.2.8)(typescript@5.9.3)
+      bitcoinjs-lib:
+        specifier: 7.0.1
+        version: 7.0.1(typescript@5.9.3)
       fastify:
         specifier: ^5.1.0
         version: 5.12.1

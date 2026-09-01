@@ -2,19 +2,20 @@ import type { MarketId } from "./market.js";
 import { borrow as borrowShares, repay as repayShares, type MarketAccounting } from "./shares.js";
 import { isLiquidatable } from "./health.js";
 
-// Collateral custody lives on Bitcoin via a TAURUS vault + locked VTXO
-// (docs/BACKGROUND.md, docs/TACHI-API.md). This port is the only seam
-// between position lifecycle logic and that network layer, so all of the
-// logic below is pure and unit-testable today; scripts/sync-kit.sh will
-// let engine/server.ts implement CollateralPort against the real
-// @kosen/tachi-kit once satusd publishes it (docs/PLAN.md Phase 3, open
-// question #2). The interface is stable either way: self-locking or the
-// 2-of-2 fallback both satisfy this shape.
-export interface CollateralPort {
-  lock(vaultId: string, amountSats: bigint): Promise<void>;
-  unlock(vaultId: string, amountSats: bigint): Promise<void>;
-  seize(vaultId: string, amountSats: bigint, to: string): Promise<void>;
-}
+// Collateral custody lives on Bitcoin via a TAURUS vault (docs/BACKGROUND.md,
+// docs/TACHI-API.md, docs/COLLATERAL-MODEL.md). CollateralPort — the seam
+// between position lifecycle logic and that network layer — now lives in
+// collateral-port.ts (open/commit/liquidate/close/watch, replacing an
+// earlier lock/unlock/seize sketch once docs/COLLATERAL-MODEL.md §1 found a
+// single-key vault can't secure a lender). Re-exported here so existing
+// imports of `CollateralPort` from this module keep working.
+export type {
+  CollateralPort,
+  OpenChannelArgs,
+  OpenChannelResult,
+  CommitStateArgs,
+  CommitStateResult,
+} from "./collateral-port.js";
 
 export type PositionStatus = "open" | "closed" | "liquidated";
 
@@ -118,7 +119,7 @@ export function debtOwed(position: Position, market: MarketAccounting): bigint {
 }
 
 // Close a fully repaid position and release its collateral. The caller is
-// responsible for calling CollateralPort.unlock — this function only
+// responsible for calling CollateralPort.close — this function only
 // validates that debt is actually zero before flipping status, so collateral
 // can never be released while debt remains.
 export function close(position: Position, market: MarketAccounting, now: bigint): Position {

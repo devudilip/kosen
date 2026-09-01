@@ -1,26 +1,3 @@
-/**
- * MuSig2 signer for Kōsen's joint-key TAURUS vault (docs/COLLATERAL-MODEL.md
- * §3-4, docs/DIRECTIVE-02.md Task 2).
- *
- * satusd hasn't shipped musig.ts yet as of this writing (checked: only
- * net/vault/vtxo/collateral/health exist in their tachi-kit). Per Directive
- * 02 — "if they are behind, implement against the §6 contract and hand it
- * back to them" — this implements exactly that contract:
- *
- *   createAggSigner({ localSecret, remotePub, exchange }) → TaprootSigner
- *   aggregateKey(pubs) → { xOnly, compressed }
- *
- * Do not diverge these names or shapes; satusd vendors this back once they
- * see it, or Kōsen vendors theirs if they land it first — whichever happens,
- * both sides must agree on this exact surface.
- *
- * Why a joint key: docs/COLLATERAL-MODEL.md §1 verified that a single-key
- * borrower vault lets the borrower cosign a refund paying 100% to
- * themselves at any time — a single key cannot secure a lender. The owner
- * key of a Kōsen collateral vault must instead be P_agg = MuSig2(borrower,
- * protocol), so every cooperative spend (including a "refund to myself")
- * needs the protocol's partial signature too.
- */
 import {
   IndividualPubkey,
   sortKeys,
@@ -31,136 +8,162 @@ import {
   Session,
 } from "@scure/btc-signer/musig2.js";
 
-/** BIP-340 Schnorr-capable signer shape @tachibtc/taurus-vault-core expects everywhere. */
-export interface TaprootSigner {
-  publicKey: Buffer;
-  sign(hash: Uint8Array): Promise<Uint8Array>;
-  signSchnorr(hash: Uint8Array): Promise<Uint8Array>;
-}
+/**
+ * MuSig2 (BIP-327) joint signing — see docs/COLLATERAL-MODEL.md §4.
+ *
+ * Verified live in scripts/04-spike-musig-vault.ts: `createVault` accepts a
+ * MuSig2 aggregate key as the owner key, and both the pre-signed exit tx and
+ * a quorum-cosigned refund work when signed through it.
+ */
 
-export interface AggregateKeyResult {
-  /** 32-byte x-only aggregate pubkey — what gets embedded in tapscript leaves. */
+/** The MuSig2 aggregate of a set of individual (compressed) pubkeys. */
+export interface AggregateKey {
+  /** 32-byte x-only aggregate key — what goes into `createVault({ userPubkey })`. */
   readonly xOnly: Buffer;
-  /** 33-byte compressed aggregate pubkey — what `createVault({ userPubkey })` wants. */
+  /** 33-byte compressed aggregate key. */
   readonly compressed: Buffer;
+  /** The input pubkeys in the canonical sorted order `Session`/`partialSigAgg` require. */
+  readonly publicKeys: readonly Buffer[];
 }
 
-/**
- * Deterministically aggregates a set of participant pubkeys into the MuSig2
- * key both parties' vault leaves are built against. `sortKeys` first, so both
- * parties independently computing this from the same two pubkeys always
- * agree on the same P_agg regardless of the order they were supplied in.
- */
-export function aggregateKey(pubs: readonly Uint8Array[]): AggregateKeyResult {
-  if (pubs.length < 2) throw new Error("aggregateKey: need at least 2 participant pubkeys");
-  const sorted = sortKeys(pubs as Uint8Array[]);
+/** Aggregate individual compressed pubkeys into one MuSig2 output key. Pure, no signing. */
+export function aggregateKey(pubs: readonly Buffer[]): AggregateKey {
+  const sorted = sortKeys([...pubs]) as unknown as Buffer[];
   const ctx = keyAggregate(sorted);
-  // keyAggExport returns the 32-byte BIP-340 x-only key directly (verified:
-  // it is NOT a 33-byte compressed key with the leading byte stripped off).
-  // The compressed form — needed for `createVault({ userPubkey })` — comes
-  // from the aggregate point itself, which carries the Y parity x-only
-  // export throws away.
-  const xOnly = Buffer.from(keyAggExport(ctx));
-  const compressed = Buffer.from((ctx.aggPublicKey as { toBytes(isCompressed: boolean): Uint8Array }).toBytes(true));
-  return { xOnly, compressed };
-}
-
-/** One round of the interactive 2-party MuSig2 protocol. */
-export interface ExchangeRound {
-  readonly round: "nonce" | "partial";
-  /** The sighash being signed — the remote party must verify this is what it agreed to before contributing. */
-  readonly msg: Uint8Array;
-  /** This party's contribution for the round (a public nonce, or a partial signature). */
-  readonly data: Uint8Array;
+  const xOnly = Buffer.from(keyAggExport(ctx) as Uint8Array);
+  const compressed = Buffer.from((ctx.aggPublicKey as { toBytes(compressed: boolean): Uint8Array }).toBytes(true));
+  return { xOnly, compressed, publicKeys: sorted };
 }
 
 /**
- * Transport for the 2-party MuSig2 round trip: send this party's
- * contribution for a round, get back the counterparty's contribution for
- * the same round. In production this is one HTTP call each way — the
- * borrower's side runs in the web app/CLI, the protocol's side runs in the
- * engine (docs/COLLATERAL-MODEL.md §4). For spikes, both parties can live in
- * one process with `exchange` wired directly between two local signers.
+ * One two-party MuSig2 round, transport-agnostic: send our contribution, get
+ * back theirs. In-process for a spike or test; an HTTP round trip in
+ * production (`POST /musig/nonce`, `POST /musig/partial` — the engine-side
+ * and borrower-side of this are wired up separately, not here).
  */
-export type Exchange = (round: ExchangeRound) => Promise<Uint8Array>;
+export interface MusigExchange {
+  exchangeNonce(localPublicNonce: Buffer, sighash: Buffer): Promise<Buffer>;
+  exchangePartialSig(localPartialSig: Buffer, sighash: Buffer): Promise<Buffer>;
+}
 
 export interface CreateAggSignerArgs {
-  /** This party's own secret key. Never leaves this function. */
-  readonly localSecret: Uint8Array;
-  /** The counterparty's compressed public key. */
-  readonly remotePub: Uint8Array;
-  /** Interactive transport to the counterparty (see {@link Exchange}). */
-  readonly exchange: Exchange;
-}
-
-/** Reorders per-party contributions into the same order as `sortKeys([localPub, remotePub])` gave the session. */
-function orderByPubkey<T>(
-  sortedPubs: readonly Uint8Array[],
-  entries: readonly { pub: Uint8Array; value: T }[],
-): T[] {
-  return sortedPubs.map((pub) => {
-    const match = entries.find((e) => bytesEqual(e.pub, pub));
-    if (!match) throw new Error("orderByPubkey: no contribution for one of the sorted pubkeys");
-    return match.value;
-  });
-}
-
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
+  /** This party's own secret key. Never shared with `exchange`. */
+  readonly localSecret: Buffer;
+  /** The other party's compressed public key. */
+  readonly remotePub: Buffer;
+  /** Carries this party's nonce/partial-sig contributions to the other party and back. */
+  readonly exchange: MusigExchange;
 }
 
 /**
- * Builds a {@link TaprootSigner} backed by an interactive 2-party MuSig2
- * session. `publicKey` is P_agg (compressed) — hand this signer to any
- * `@tachibtc/taurus-vault-core` sign* function exactly like a normal wallet
- * signer; every `signSchnorr` call runs the full nonce-exchange +
- * partial-sign + aggregate round trip underneath.
- *
- * SECURITY: a fresh nonce pair is generated per `signSchnorr` call and is
- * never reused — see @scure/btc-signer/musig2.js's `nonceGen` doc. `sign`
- * (ECDSA) is not supported: nothing on Kōsen's taproot paths needs it.
+ * Structurally a `TaprootSigner` (satisfies it wherever one is expected —
+ * `createVault`, `signRefundPsbtAsUser`, etc.), but declared standalone
+ * rather than intersected with it: `TaprootSigner = Signer | SignerAsync` is
+ * a union with incompatible `sign` return types, and intersecting a concrete
+ * object type with that union makes `signSchnorr` uncallable at the type
+ * level for callers of this module. `sign` returns `never` (always throws),
+ * which is assignable to every return position either union member expects.
  */
-export function createAggSigner({ localSecret, remotePub, exchange }: CreateAggSignerArgs): TaprootSigner {
-  const localPub = Buffer.from(IndividualPubkey(localSecret));
-  const sortedPubs = sortKeys([new Uint8Array(localPub), new Uint8Array(remotePub)]);
-  const agg = keyAggregate(sortedPubs);
-  const aggXOnly = Buffer.from(keyAggExport(agg)); // 32 bytes — nonceGen's aggPublicKey param wants this form
-  const aggPubCompressed = Buffer.from(
-    (agg.aggPublicKey as { toBytes(isCompressed: boolean): Uint8Array }).toBytes(true),
-  );
+export interface AggSigner {
+  readonly publicKey: Buffer;
+  /** 32-byte x-only form of `publicKey` — what `createVault({ userPubkey })` commits to. */
+  readonly xOnly: Buffer;
+  sign(hash: Uint8Array, lowR?: boolean): never;
+  signSchnorr(hash: Buffer): Promise<Buffer>;
+}
+
+/**
+ * A `TaprootSigner` backed by an interactive two-party MuSig2 session.
+ * `signSchnorr` runs a full nonce-then-partial-sig round trip against
+ * `exchange` every time it's called — this signer alone can never produce a
+ * valid signature; it always needs the remote party's live cooperation.
+ *
+ * Both parties calling `createAggSigner` (each with their own `localSecret`
+ * and the other's `remotePub`) independently compute the identical aggregate
+ * key, since `aggregateKey`'s sort is canonical — there's no "who goes first."
+ */
+export function createAggSigner(args: CreateAggSignerArgs): AggSigner {
+  const localPub = Buffer.from(IndividualPubkey(args.localSecret) as Uint8Array);
+  const agg = aggregateKey([localPub, args.remotePub]);
+  const localIndex = agg.publicKeys.findIndex((p) => p.equals(localPub));
+  if (localIndex === -1) throw new Error("local pubkey missing from its own aggregate — sortKeys mismatch");
+
+  async function signSchnorr(sighash: Buffer): Promise<Buffer> {
+    const msg = sighash;
+    const localNonce = nonceGen(localPub, args.localSecret, agg.xOnly, msg);
+    const remotePublicNonce = await args.exchange.exchangeNonce(Buffer.from(localNonce.public), sighash);
+    const aggNonce = nonceAggregate([localNonce.public, remotePublicNonce]) as Uint8Array;
+    const session = new Session(aggNonce, agg.publicKeys as Buffer[], msg);
+    const localPartial = session.sign(localNonce.secret, args.localSecret);
+    const remotePartial = await args.exchange.exchangePartialSig(Buffer.from(localPartial), sighash);
+
+    const partials: Uint8Array[] = [];
+    partials[localIndex] = localPartial;
+    partials[localIndex === 0 ? 1 : 0] = remotePartial;
+    const finalSig = session.partialSigAgg(partials);
+    return Buffer.from(finalSig as Uint8Array);
+  }
 
   return {
-    publicKey: aggPubCompressed,
-    async sign(): Promise<Uint8Array> {
-      throw new Error("createAggSigner: ECDSA sign is not supported — every Kōsen taproot path uses signSchnorr");
+    publicKey: agg.compressed,
+    xOnly: agg.xOnly,
+    sign(): never {
+      throw new Error("ECDSA is not supported on a MuSig2 owner key — Taproot script-path spends only");
     },
-    async signSchnorr(sighash: Uint8Array): Promise<Uint8Array> {
-      const msg = new Uint8Array(sighash);
+    signSchnorr,
+  };
+}
 
-      // Round 1: each party generates a fresh nonce pair and exchanges the public half.
-      const localNonces = nonceGen(localPub, localSecret, aggXOnly, msg);
-      const remoteNonce = await exchange({ round: "nonce", msg, data: localNonces.public });
-      const aggNonce = nonceAggregate(
-        orderByPubkey(sortedPubs, [
-          { pub: localPub, value: localNonces.public },
-          { pub: remotePub, value: remoteNonce },
-        ]),
-      );
+/** A minimal FIFO async handoff — one value in, one value out, in order. */
+class AsyncQueue<T> {
+  private readonly items: T[] = [];
+  private readonly waiters: Array<(v: T) => void> = [];
 
-      // Round 2: each party computes and exchanges its partial signature.
-      const session = new Session(aggNonce, sortedPubs, msg);
-      const localPartial = session.sign(localNonces.secret, localSecret);
-      const remotePartial = await exchange({ round: "partial", msg, data: localPartial });
+  push(value: T): void {
+    const waiter = this.waiters.shift();
+    if (waiter) waiter(value);
+    else this.items.push(value);
+  }
 
-      const finalSig = session.partialSigAgg(
-        orderByPubkey(sortedPubs, [
-          { pub: localPub, value: localPartial },
-          { pub: remotePub, value: remotePartial },
-        ]),
-      );
-      return finalSig;
+  async pop(): Promise<T> {
+    const value = this.items.shift();
+    if (value !== undefined) return value;
+    return new Promise((resolve) => this.waiters.push(resolve));
+  }
+}
+
+/**
+ * An in-process `MusigExchange` pair for tests and spikes, where both
+ * secrets are locally known. Never use this in production — it defeats the
+ * entire point of the interactive protocol (see `createAggSigner`'s doc
+ * comment). Each side's `signSchnorr` must be driven concurrently (e.g. via
+ * `Promise.all`) — each is waiting on the other's contribution to proceed.
+ */
+export function createInProcessExchangePair(): [MusigExchange, MusigExchange] {
+  const nonceAtoB = new AsyncQueue<Buffer>();
+  const nonceBtoA = new AsyncQueue<Buffer>();
+  const partialAtoB = new AsyncQueue<Buffer>();
+  const partialBtoA = new AsyncQueue<Buffer>();
+
+  const sideA: MusigExchange = {
+    async exchangeNonce(local) {
+      nonceAtoB.push(local);
+      return nonceBtoA.pop();
+    },
+    async exchangePartialSig(local) {
+      partialAtoB.push(local);
+      return partialBtoA.pop();
     },
   };
+  const sideB: MusigExchange = {
+    async exchangeNonce(local) {
+      nonceBtoA.push(local);
+      return nonceAtoB.pop();
+    },
+    async exchangePartialSig(local) {
+      partialBtoA.push(local);
+      return partialAtoB.pop();
+    },
+  };
+  return [sideA, sideB];
 }

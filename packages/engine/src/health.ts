@@ -61,3 +61,20 @@ export function liquidationPrice(borrowAssets: bigint, collateralSats: bigint, l
   //              <=> price < borrowAssets * SATS_PER_BTC / (collateralSats * lltv)
   return (borrowAssets * SATS_PER_BTC * WAD) / (collateralSats * lltv);
 }
+
+// The sats a liquidation refund's protocol-payout output should carry
+// (docs/COLLATERAL-MODEL.md §3.5, verified against live regtest in
+// scripts/04-spike-musig-vault.ts): share = collateral * lltv * (1+penalty),
+// capped at the full collateral. Substituting priceLiq (liquidationPrice)
+// back into share = debt*(1+penalty)*SATS_PER_BTC/priceLiq cancels debt out
+// entirely — the share depends only on collateral, lltv, and the penalty,
+// not on the specific debt or price at commit time. This is the ONE
+// authoritative share formula both collateral-tachi.ts and
+// collateral-sim.ts must use — do not reach for @kosen/tachi-kit's
+// shareForLiquidation, which is satUSD's own collateralization-*ratio*
+// model (>=100%) and computes something else entirely for an LTV (<=100%)
+// input (verified: it saturates at 100% of collateral).
+export function shareForLiquidation(collateralSats: bigint, lltv: bigint, penaltyBps: bigint): bigint {
+  const raw = (collateralSats * lltv * (10_000n + penaltyBps)) / (WAD * 10_000n);
+  return raw > collateralSats ? collateralSats : raw;
+}
