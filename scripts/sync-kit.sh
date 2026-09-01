@@ -7,11 +7,17 @@
 # A checksum file (packages/tachi-kit/.source-checksum) records the hash of
 # the last successful sync, so a stale local copy that has drifted from the
 # source fails loudly instead of silently diverging.
+#
+# KIT_SOURCE overrides the default source path — e.g. to point at satusd's
+# in-progress worktree before it's merged to satusd's main branch
+# (docs/DIRECTIVE-02.md, Task 1: "do not wait for satusd's commitment.ts").
+# Default stays ../satusd/packages/tachi-kit so a plain `pnpm sync-kit` keeps
+# working once satusd ships there.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 KOSEN_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
-SOURCE_DIR="$KOSEN_ROOT/../satusd/packages/tachi-kit"
+SOURCE_DIR="${KIT_SOURCE:-$KOSEN_ROOT/../satusd/packages/tachi-kit}"
 DEST_DIR="$KOSEN_ROOT/packages/tachi-kit"
 CHECKSUM_FILE="$DEST_DIR/.source-checksum"
 

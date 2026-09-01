@@ -9,6 +9,7 @@
     "sync-kit": "bash scripts/sync-kit.sh",
     "bootstrap": "tsx scripts/00-bootstrap-regtest.ts",
     "spike": "tsx scripts/01-spike-vault.ts",
+    "spike:refund": "tsx scripts/03-spike-refund-cosign.ts",
     "score": "tsx scripts/score-address.ts",
     "demo:liquidate": "tsx scripts/demo-liquidate.ts",
     "demo:exit": "tsx scripts/unilateral-exit.ts",
@@ -16,7 +17,11 @@
   },
   "dependencies": {
     "@kosen/ai": "workspace:*",
-    "@kosen/engine": "workspace:*"
+    "@kosen/engine": "workspace:*",
+    "@kosen/tachi-kit": "workspace:*",
+    "@tachibtc/taurus-vault-core": "0.3.4",
+    "@tachibtc/taurus-wallet-aggregator": "0.4.5",
+    "dotenv": "^17.4.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",

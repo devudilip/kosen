@@ -1,41 +1,62 @@
 #!/usr/bin/env -S npx tsx
-// pnpm bootstrap — startup assertion against live Tachi regtest infra
-// (docs/PLAN.md Phase 1): getHealth() + chain_id, then confirm a local
-// bitcoind is reachable (Tachi's hosted regtest has no bitcoind attached —
-// docs/TACHI-API.md, "regtest bitcoind proxy 404s").
-//
-// BLOCKED on @kosen/tachi-kit. Run `pnpm sync-kit` once ../satusd publishes
-// packages/tachi-kit, then delete this guard and fill in the real calls
-// below — the shape is already documented in docs/TACHI-API.md.
-async function main(): Promise<void> {
-  let tachiKit: unknown;
+/**
+ * Bootstrap local regtest: create a bitcoind wallet, mine 101 blocks (matures
+ * the first coinbase), and fund the demo mnemonic's receive address.
+ *
+ * Requires bitcoind running locally — Tachi's hosted regtest has no bitcoind
+ * attached (docs/BACKGROUND.md §5, docs/COLLATERAL-MODEL.md §1):
+ *
+ *   bitcoind -regtest -daemon -rpcuser=tachi -rpcpassword=tachi \
+ *     -rpcport=18443 -fallbackfee=0.0001 -txindex=1
+ *
+ * Mirrors satusd's scripts/00-bootstrap-regtest.ts — both products share the
+ * identical bootstrap step (docs/DIRECTIVE-02.md, Task 1).
+ */
+import "dotenv/config";
+import { BitcoinCoreRpcClient, WalletAggregator } from "@tachibtc/taurus-wallet-aggregator";
+import { resolveNetworkConfig } from "@kosen/tachi-kit";
+
+async function main() {
+  const config = resolveNetworkConfig("regtest");
+  const rpc = new BitcoinCoreRpcClient({
+    url: config.bitcoinRpc.url,
+    username: config.bitcoinRpc.username,
+    password: config.bitcoinRpc.password,
+  });
+
+  console.log(`[bootstrap] connecting to bitcoind at ${config.bitcoinRpc.url}`);
+
   try {
-    tachiKit = await import("@kosen/tachi-kit");
-  } catch {
-    console.error("bootstrap: @kosen/tachi-kit is not vendored yet.");
-    console.error("Run `pnpm sync-kit` once ../satusd has published packages/tachi-kit.");
-    process.exit(1);
+    await rpc.call("createwallet", ["dev"]);
+    console.log("[bootstrap] created wallet: dev");
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("already exists") || message.includes("Database already exists")) {
+      console.log("[bootstrap] wallet 'dev' already exists, continuing");
+    } else {
+      throw err;
+    }
   }
 
-  // Expected implementation once vendored (docs/TACHI-API.md):
-  //
-  //   const { TachiClient } = tachiKit as typeof import("@kosen/tachi-kit");
-  //   const tachi = new TachiClient({ baseUrl: process.env.TACHI_RPC_URL!, timeoutMs: 10_000 });
-  //   const health = await tachi.getHealth();
-  //   const stats = await tachi.getStats();
-  //   const expectedChainId = process.env.TACHI_NETWORK === "signet" ? "tachi-signet-1" : "tachi-regtest-1";
-  //   if (stats.chain_id !== expectedChainId) {
-  //     throw new Error(`chain_id mismatch: expected ${expectedChainId}, got ${stats.chain_id}`);
-  //   }
-  //   console.log(`Connected to ${stats.chain_id} at height ${stats.height}. Health: ${JSON.stringify(health)}`);
-  //
-  //   if (process.env.TACHI_NETWORK !== "signet") {
-  //     // regtest: Tachi's hosted proxy 404s, so confirm the LOCAL bitcoind instead.
-  //     await tachi.bitcoinRPC({ id: 1, jsonrpc: "1.0", method: "getblockchaininfo", params: [] });
-  //   }
+  const mnemonic = process.env.DEMO_MNEMONIC;
+  if (!mnemonic) throw new Error("DEMO_MNEMONIC is not set — copy .env.example to .env");
 
-  console.error("bootstrap: @kosen/tachi-kit resolved but this script's body is still a stub — fill it in per the comment above.");
-  process.exit(1);
+  const aggregator = WalletAggregator.fromMnemonic(mnemonic, { network: "regtest", rpc });
+  const demoWallet = aggregator.addAccount({ addressType: "p2wpkh" });
+  const demoAddress = demoWallet.receiveAddress;
+  console.log(`[bootstrap] demo wallet receive address: ${demoAddress}`);
+
+  const currentHeight = await rpc.call<number>("getblockcount");
+  const blocksToMine = currentHeight < 101 ? 101 - currentHeight : 1;
+  const blockHashes = await rpc.call<string[]>("generatetoaddress", [blocksToMine, demoAddress]);
+  console.log(`[bootstrap] mined ${blockHashes.length} blocks (was at height ${currentHeight})`);
+
+  await demoWallet.sync();
+  console.log(`[bootstrap] demo wallet balance: ${demoWallet.balance.confirmed} sats confirmed`);
+  console.log("[bootstrap] done");
 }
 
-main();
+main().catch((err) => {
+  console.error("[bootstrap] failed:", err);
+  process.exit(1);
+});
