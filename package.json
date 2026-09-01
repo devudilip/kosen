@@ -10,6 +10,7 @@
     "bootstrap": "tsx scripts/00-bootstrap-regtest.ts",
     "spike": "tsx scripts/01-spike-vault.ts",
     "spike:refund": "tsx scripts/03-spike-refund-cosign.ts",
+    "spike:musig": "tsx scripts/04-spike-musig-vault.ts",
     "score": "tsx scripts/score-address.ts",
     "demo:liquidate": "tsx scripts/demo-liquidate.ts",
     "demo:exit": "tsx scripts/unilateral-exit.ts",
