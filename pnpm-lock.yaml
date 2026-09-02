@@ -73,6 +73,9 @@ importers:
       '@tachibtc/taurus-wallet-aggregator':
         specifier: 0.4.5
         version: 0.4.5(react@19.2.8)(typescript@5.9.3)
+      dotenv:
+        specifier: ^17.4.2
+        version: 17.4.2
       fastify:
         specifier: ^5.1.0
         version: 5.12.1

@@ -99,7 +99,7 @@ export interface MarketView {
   tvlLoanUnits: string;
 }
 
-function wadToDecimalString(v: bigint, decimals = 4): string {
+export function wadToDecimalString(v: bigint, decimals = 4): string {
   const scale = 10n ** BigInt(decimals);
   const scaled = (v * scale) / WAD;
   const s = scaled.toString().padStart(decimals + 1, "0");

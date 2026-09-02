@@ -43,7 +43,14 @@ import {
   type CollateralChannel,
 } from "@kosen/tachi-kit";
 import type { NetworkConfig } from "@kosen/tachi-kit";
-import type { CollateralPort, CommitStateArgs, CommitStateResult, OpenChannelArgs, OpenChannelResult } from "./collateral-port.js";
+import type {
+  ChannelSnapshot,
+  CollateralPort,
+  CommitStateArgs,
+  CommitStateResult,
+  OpenChannelArgs,
+  OpenChannelResult,
+} from "./collateral-port.js";
 import { shareForLiquidation } from "./health.js";
 
 const DEFAULT_FEE_SATS = 1_000n;
@@ -54,6 +61,9 @@ interface ChannelHandle {
   readonly protocolPayoutAddress: string;
   lastN: bigint;
   latestRefundHex: string | null;
+  latestShareSats: bigint | null;
+  latestUserValueSats: bigint | null;
+  latestRefundTxid: string | null;
 }
 
 /** Resolves the pieces open() needs for a given borrower — the seam Task 4's HTTP layer fills in. */
@@ -89,6 +99,9 @@ export class TachiCollateralPort implements CollateralPort {
       protocolPayoutAddress: resources.protocolPayoutAddress,
       lastN: 0n,
       latestRefundHex: null,
+      latestShareSats: null,
+      latestUserValueSats: null,
+      latestRefundTxid: null,
     });
 
     return {
@@ -143,10 +156,14 @@ export class TachiCollateralPort implements CollateralPort {
     }
     const refundHex = finalizeRefundPsbt(built.psbt, handle.channel.vault, verify);
 
+    const refundTxid = txidFromHex(refundHex);
     handle.lastN = n;
     handle.latestRefundHex = refundHex;
+    handle.latestShareSats = shareSats;
+    handle.latestUserValueSats = userValueSats;
+    handle.latestRefundTxid = refundTxid;
 
-    return { n, shareSats, refundTxid: txidFromHex(refundHex) };
+    return { n, shareSats, refundTxid };
   }
 
   async liquidate(channelId: string): Promise<{ txid: string }> {
@@ -167,5 +184,29 @@ export class TachiCollateralPort implements CollateralPort {
     const handle = this.requireChannel(channelId);
     const subscription = watchChannel(this.config, handle.channel, onEvent);
     return () => subscription.close();
+  }
+
+  async getSnapshot(channelId: string): Promise<ChannelSnapshot | undefined> {
+    const handle = this.channels.get(channelId);
+    if (!handle) return undefined;
+
+    const hasCommittedState =
+      handle.latestShareSats !== null && handle.latestUserValueSats !== null && handle.latestRefundTxid !== null;
+
+    return {
+      channelId,
+      vaultAddress: handle.channel.vault.p2tr.address,
+      termBlocks: handle.channel.vault.p2tr.exitLeaf.csvBlocks,
+      exitTxHex: handle.channel.exitTxHex,
+      latestState: hasCommittedState
+        ? {
+            n: handle.lastN,
+            shareSats: handle.latestShareSats!,
+            userValueSats: handle.latestUserValueSats!,
+            protocolPayoutAddress: handle.protocolPayoutAddress,
+            refundTxid: handle.latestRefundTxid!,
+          }
+        : null,
+    };
   }
 }

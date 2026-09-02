@@ -38,6 +38,26 @@ export interface CommitStateResult {
   readonly refundTxid: string; // the (unbroadcast) refund transaction's own txid — an audit trail, not a confirmation
 }
 
+// The web app's transparency story (docs/DIRECTIVE-02.md Task 7): every
+// position shows its vault address, state number, share, and "what happens
+// if I default" — the pre-signed refund's actual outputs, not a
+// description of them. This is that data, read back from a channel that's
+// already been committed at least once.
+export interface ChannelSnapshot {
+  readonly channelId: string;
+  readonly vaultAddress: string;
+  readonly termBlocks: number; // also the exit leaf's CSV delay
+  readonly exitTxHex: string;
+  /** null if commit() has never been called for this channel yet. */
+  readonly latestState: {
+    readonly n: bigint;
+    readonly shareSats: bigint; // -> protocol, on liquidation
+    readonly userValueSats: bigint; // -> borrower's to_local, on liquidation
+    readonly protocolPayoutAddress: string;
+    readonly refundTxid: string; // the liquidation tx hash-to-be
+  } | null;
+}
+
 export interface CollateralPort {
   open(args: OpenChannelArgs): Promise<OpenChannelResult>;
   /** Every borrow/repay/add-collateral/accrual checkpoint. Held, never broadcast unless liquidate() is actually called. */
@@ -47,4 +67,6 @@ export interface CollateralPort {
   close(channelId: string, toAddress: string): Promise<{ txid: string }>;
   /** Returns an unsubscribe function. */
   watch(channelId: string, onEvent: (event: unknown) => void): () => void;
+  /** Read-only — what the web app renders. undefined for an unknown channelId. */
+  getSnapshot(channelId: string): Promise<ChannelSnapshot | undefined>;
 }

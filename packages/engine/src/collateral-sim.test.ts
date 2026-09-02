@@ -83,3 +83,32 @@ describe("SimCollateralPort", () => {
     expect(events).toHaveLength(2); // unchanged — that event went to a different channel entirely
   });
 });
+
+describe("SimCollateralPort.getSnapshot — the web app's transparency data", () => {
+  it("returns undefined for an unknown channel", async () => {
+    const port = new SimCollateralPort();
+    expect(await port.getSnapshot("nonexistent")).toBeUndefined();
+  });
+
+  it("latestState is null before any commit()", async () => {
+    const port = new SimCollateralPort();
+    const { channelId } = await port.open({ borrowerPub: "borrower-x", amountSats: 300_000n, termBlocks: 1008 });
+    const snapshot = await port.getSnapshot(channelId);
+    expect(snapshot?.latestState).toBeNull();
+    expect(snapshot?.termBlocks).toBe(1008);
+  });
+
+  it("latestState reflects the most recent commit(), including the 'what happens if I default' split", async () => {
+    const port = new SimCollateralPort();
+    const { channelId } = await port.open({ borrowerPub: "borrower-x", amountSats: 300_000n, termBlocks: 1008 });
+    await port.commit(channelId, { collateralSats: 300_000n, debtSats: 100_000n, lltvWad: pct(86), penaltyBps: 500n, priceWad: 65_000n });
+
+    const snapshot = await port.getSnapshot(channelId);
+    const expectedShare = shareForLiquidation(300_000n, pct(86), 500n);
+    expect(snapshot?.latestState?.n).toBe(1n);
+    expect(snapshot?.latestState?.shareSats).toBe(expectedShare);
+    expect(snapshot?.latestState?.userValueSats).toBe(300_000n - expectedShare);
+    // The two outputs must account for the full collateral — nothing vanishes.
+    expect(snapshot!.latestState!.shareSats + snapshot!.latestState!.userValueSats).toBe(300_000n);
+  });
+});

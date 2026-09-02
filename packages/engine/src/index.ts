@@ -31,3 +31,4 @@ export * from "./collateral-sim.js";
 export * from "./collateral-tachi.js";
 export * from "./ledger-world.js";
 export * from "./demo-borrower.js";
+export * from "./ledger-world-views.js";

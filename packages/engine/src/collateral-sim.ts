@@ -6,17 +6,30 @@
 // connection, exactly like collateral-tachi.ts's real vaults but with
 // fabricated (not cryptographically real) identifiers.
 import { randomBytes } from "node:crypto";
-import type { CollateralPort, CommitStateArgs, CommitStateResult, OpenChannelArgs, OpenChannelResult } from "./collateral-port.js";
+import type {
+  ChannelSnapshot,
+  CollateralPort,
+  CommitStateArgs,
+  CommitStateResult,
+  OpenChannelArgs,
+  OpenChannelResult,
+} from "./collateral-port.js";
 import { shareForLiquidation } from "./health.js";
+
+const SIM_PROTOCOL_PAYOUT_ADDRESS = "sim1protocolpayoutaddress";
 
 interface SimChannel {
   readonly channelId: string;
   readonly borrowerPub: string;
   readonly amountSats: bigint;
   readonly termBlocks: number;
+  readonly vaultAddress: string;
+  readonly exitTxHex: string;
   status: "open" | "liquidated" | "closed";
   lastN: bigint;
   latestShareSats: bigint;
+  latestUserValueSats: bigint | null;
+  latestRefundTxid: string | null;
   watchers: Set<(event: unknown) => void>;
 }
 
@@ -29,22 +42,23 @@ export class SimCollateralPort implements CollateralPort {
 
   async open(args: OpenChannelArgs): Promise<OpenChannelResult> {
     const channelId = fakeHex(32);
+    const vaultAddress = `sim1${fakeHex(20)}`;
+    const exitTxHex = fakeHex(128); // never actually broadcastable — sim mode has no real Bitcoin behind it
     this.channels.set(channelId, {
       channelId,
       borrowerPub: args.borrowerPub,
       amountSats: args.amountSats,
       termBlocks: args.termBlocks,
+      vaultAddress,
+      exitTxHex,
       status: "open",
       lastN: 0n,
       latestShareSats: 0n,
+      latestUserValueSats: null,
+      latestRefundTxid: null,
       watchers: new Set(),
     });
-    return {
-      channelId,
-      vaultAddress: `sim1${fakeHex(20)}`,
-      fundingTxid: fakeHex(32),
-      exitTxHex: fakeHex(128), // never actually broadcastable — sim mode has no real Bitcoin behind it
-    };
+    return { channelId, vaultAddress, fundingTxid: fakeHex(32), exitTxHex };
   }
 
   private requireOpenChannel(channelId: string): SimChannel {
@@ -59,7 +73,9 @@ export class SimCollateralPort implements CollateralPort {
     const shareSats = shareForLiquidation(args.collateralSats, args.lltvWad, args.penaltyBps);
     channel.lastN += 1n;
     channel.latestShareSats = shareSats;
-    const result: CommitStateResult = { n: channel.lastN, shareSats, refundTxid: fakeHex(32) };
+    channel.latestUserValueSats = args.collateralSats - shareSats;
+    channel.latestRefundTxid = fakeHex(32);
+    const result: CommitStateResult = { n: channel.lastN, shareSats, refundTxid: channel.latestRefundTxid };
     for (const onEvent of channel.watchers) onEvent({ event: "state-committed", channelId, ...result });
     return result;
   }
@@ -85,5 +101,26 @@ export class SimCollateralPort implements CollateralPort {
     if (!channel) throw new Error(`SimCollateralPort: unknown channel ${channelId}`);
     channel.watchers.add(onEvent);
     return () => channel.watchers.delete(onEvent);
+  }
+
+  async getSnapshot(channelId: string): Promise<ChannelSnapshot | undefined> {
+    const channel = this.channels.get(channelId);
+    if (!channel) return undefined;
+    const hasCommittedState = channel.latestUserValueSats !== null && channel.latestRefundTxid !== null;
+    return {
+      channelId,
+      vaultAddress: channel.vaultAddress,
+      termBlocks: channel.termBlocks,
+      exitTxHex: channel.exitTxHex,
+      latestState: hasCommittedState
+        ? {
+            n: channel.lastN,
+            shareSats: channel.latestShareSats,
+            userValueSats: channel.latestUserValueSats!,
+            protocolPayoutAddress: SIM_PROTOCOL_PAYOUT_ADDRESS,
+            refundTxid: channel.latestRefundTxid!,
+          }
+        : null,
+    };
   }
 }
