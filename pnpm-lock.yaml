@@ -64,6 +64,9 @@ importers:
       '@kosen/tachi-kit':
         specifier: workspace:*
         version: link:../tachi-kit
+      '@scure/btc-signer':
+        specifier: 2.4.1
+        version: 2.4.1
       '@tachibtc/taurus-vault-core':
         specifier: 0.3.4
         version: 0.3.4(react@19.2.8)(typescript@5.9.3)
