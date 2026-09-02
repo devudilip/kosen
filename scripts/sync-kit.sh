@@ -13,6 +13,13 @@
 # (docs/DIRECTIVE-02.md, Task 1: "do not wait for satusd's commitment.ts").
 # Default stays ../satusd/packages/tachi-kit so a plain `pnpm sync-kit` keeps
 # working once satusd ships there.
+#
+# CAVEAT — git worktrees: the default path is relative to THIS script's own
+# location, so running from a kosen git worktree nested under
+# kosen/.claude/worktrees/<name>/ resolves "../satusd" inside that nested
+# path, not the real sibling checkout. Pass KIT_SOURCE explicitly
+# (an absolute path to the real satusd/packages/tachi-kit) when running from
+# a worktree.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"

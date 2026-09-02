@@ -5,3 +5,4 @@ export * from "./store.js";
 export * from "./demo-score.js";
 export * from "./copilot.js";
 export * from "./monitor.js";
+export * from "./adapter-tachi.js";

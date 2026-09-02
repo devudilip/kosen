@@ -2,21 +2,20 @@
 // @kosen/tachi-kit's commitment.ts primitives (docs/DIRECTIVE-02.md Task 3).
 //
 // Deliberately does NOT call commitment.ts's own `commitState()`. Verified
-// live against regtest (scripts/04-spike-musig-vault.ts) that it has two
-// bugs for Kōsen's use:
-//   1. It calls shareForLiquidation() from tachi-kit's health.ts, which is
-//      satUSD's own collateralization-*ratio* model (>=100%, e.g. 150%) —
-//      not Kōsen's LTV model (<=100%, e.g. 86% LLTV). Feeding an 86 "LLTV"
-//      through it computes a wildly wrong liquidation price (confirmed:
-//      shareSats saturates at 100% of collateral).
-//   2. Its userValueSats doesn't reserve room for feeSats — sum(outputs)
-//      equals funding.valueSats exactly, so buildRefundPsbt rejects it once
-//      a fee is added on top ("amount mismatch").
-// Per sync-kit.sh's own rule ("do not edit the vendored copy"), these are
-// not patched in tachi-kit locally — this module builds the refund PSBT
-// directly against the lower-level SDK primitives instead, using
-// health.ts's shareForLiquidation (Kōsen's own, LTV-based, the one this
-// package tests against the exact value verified live).
+// live against regtest (scripts/04-spike-musig-vault.ts) that its
+// shareForLiquidation() call (tachi-kit's health.ts) is satUSD's own
+// collateralization-*ratio* model (>=100%, e.g. 150%) — not Kōsen's LTV
+// model (<=100%, e.g. 86% LLTV). Feeding an 86 "LLTV" through it computes a
+// wildly wrong liquidation price (confirmed: shareSats saturates at 100% of
+// collateral). Re-checked against satusd's 2026-09-02 main merge: still
+// present — a separate userValueSats/feeSats bug that existed alongside it
+// has since been fixed upstream, but this one is a genuine model mismatch,
+// not a bug, so it won't be "fixed" the same way. Per sync-kit.sh's own rule
+// ("do not edit the vendored copy"), this is not patched in tachi-kit
+// locally — this module builds the refund PSBT directly against the
+// lower-level SDK primitives instead, using engine/health.ts's own
+// shareForLiquidation (Kōsen's LTV-based one, tested against the exact
+// value verified live).
 //
 // The interactive MuSig2 signing itself (the borrower-client <-> engine HTTP
 // round trip) is out of scope here — this module takes an already-
@@ -39,11 +38,11 @@ import {
   broadcastLiquidation,
   closeChannel,
   watchChannel,
+  txidFromHex,
   type AggSigner,
   type CollateralChannel,
 } from "@kosen/tachi-kit";
 import type { NetworkConfig } from "@kosen/tachi-kit";
-import { Transaction } from "bitcoinjs-lib";
 import type { CollateralPort, CommitStateArgs, CommitStateResult, OpenChannelArgs, OpenChannelResult } from "./collateral-port.js";
 import { shareForLiquidation } from "./health.js";
 
@@ -147,7 +146,7 @@ export class TachiCollateralPort implements CollateralPort {
     handle.lastN = n;
     handle.latestRefundHex = refundHex;
 
-    return { n, shareSats, refundTxid: Transaction.fromHex(refundHex).getId() };
+    return { n, shareSats, refundTxid: txidFromHex(refundHex) };
   }
 
   async liquidate(channelId: string): Promise<{ txid: string }> {

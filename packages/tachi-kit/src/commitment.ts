@@ -1,4 +1,5 @@
 import type { BitcoinCoreRpcClient, Wallet } from "@tachibtc/taurus-wallet-aggregator";
+import { Transaction } from "bitcoinjs-lib";
 import {
   createVault,
   verifyVaultP2tr,
@@ -176,10 +177,22 @@ export interface CommitStateArgs {
 
 export interface CommittedState {
   readonly n: bigint;
-  /** Cosigned refund tx, hex — hold it, broadcast only on liquidation. */
+  /** Cosigned refund tx, hex — hold it, broadcast only on liquidation. Never expose this over a public API — see `routes.ts` and `refundTxid` below. */
   readonly refundHex: string;
   readonly shareSats: bigint;
   readonly priceLiqUsdCents: bigint;
+  /**
+   * The txid this refund will have once mined — the "liquidation txid-to-be"
+   * (docs/PLAN.md Phase 6, README's proof-of-reserves bullet). Safe to
+   * publish: knowing a txid doesn't let anyone broadcast anything, unlike
+   * `refundHex` itself.
+   */
+  readonly refundTxid: string;
+}
+
+/** Bitcoin's real txid (double-SHA256 of the serialized tx, respecting SegWit) for a raw hex transaction. */
+export function txidFromHex(rawHex: string): string {
+  return Transaction.fromHex(rawHex).getId();
 }
 
 /**
@@ -198,8 +211,8 @@ export async function commitState(config: NetworkConfig, args: CommitStateArgs):
   if (!share) throw new Error("cannot commit a liquidation state with zero debt or zero collateral");
 
   const hint = encodeStateHint(args.n, args.channel.stateObfuscator);
-  const userValueSats = args.channel.funding.valueSats - share.shareSats;
   const feeSats = args.feeSats ?? 1_000n;
+  const userValueSats = args.channel.funding.valueSats - share.shareSats - feeSats;
   const built = buildRefundPsbt({
     vault: args.channel.vault,
     funding: args.channel.funding,
@@ -230,7 +243,13 @@ export async function commitState(config: NetworkConfig, args: CommitStateArgs):
   }
   const refundHex = finalizeRefundPsbt(built.psbt, args.channel.vault, verify);
 
-  return { n: args.n, refundHex, shareSats: share.shareSats, priceLiqUsdCents: share.priceLiqUsdCents };
+  return {
+    n: args.n,
+    refundHex,
+    shareSats: share.shareSats,
+    priceLiqUsdCents: share.priceLiqUsdCents,
+    refundTxid: txidFromHex(refundHex),
+  };
 }
 
 /**
