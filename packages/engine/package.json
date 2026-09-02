@@ -1,0 +1,20 @@
+{
+  "name": "@kosen/engine",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/server.ts"
+  },
+  "dependencies": {
+    "@kosen/tachi-kit": "workspace:*",
+    "@scure/btc-signer": "2.4.1",
+    "@tachibtc/taurus-vault-core": "0.3.4",
+    "@tachibtc/taurus-wallet-aggregator": "0.4.5",
+    "dotenv": "^17.4.2",
+    "fastify": "^5.1.0"
+  }
+}

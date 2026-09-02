@@ -1,0 +1,35 @@
+{
+  "name": "kosen",
+  "private": true,
+  "version": "0.0.1",
+  "packageManager": "pnpm@9.15.9",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "vitest run",
+    "sync-kit": "bash scripts/sync-kit.sh",
+    "bootstrap": "tsx scripts/00-bootstrap-regtest.ts",
+    "spike": "tsx scripts/01-spike-vault.ts",
+    "spike:refund": "tsx scripts/03-spike-refund-cosign.ts",
+    "spike:musig": "tsx scripts/04-spike-musig-vault.ts",
+    "seed:borrower": "tsx scripts/05-seed-real-borrower.ts",
+    "score:live": "tsx scripts/06-score-live-borrower.ts",
+    "score": "tsx scripts/score-address.ts",
+    "demo:liquidate": "tsx scripts/demo-liquidate.ts",
+    "demo:exit": "tsx scripts/unilateral-exit.ts",
+    "dev": "pnpm --parallel --filter ./packages/engine --filter ./packages/web dev"
+  },
+  "dependencies": {
+    "@kosen/ai": "workspace:*",
+    "@kosen/engine": "workspace:*",
+    "@kosen/tachi-kit": "workspace:*",
+    "@tachibtc/taurus-vault-core": "0.3.4",
+    "@tachibtc/taurus-wallet-aggregator": "0.4.5",
+    "dotenv": "^17.4.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}
