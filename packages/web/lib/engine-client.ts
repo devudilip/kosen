@@ -16,6 +16,26 @@ export interface MarketView {
   tvlLoanUnits: string;
 }
 
+// Present only when the engine is running with KOSEN_MODE=tachi
+// (packages/engine/src/ledger-world-views.ts) — a real MuSig2 vault backs
+// this position. Absent (undefined) in the default KOSEN_MODE=sim.
+export interface DefaultOutcome {
+  n: string;
+  shareSats: string; // -> protocol, on liquidation
+  userValueSats: string; // -> borrower's to_local, on liquidation
+  protocolPayoutAddress: string;
+  refundTxid: string; // the liquidation tx hash-to-be
+}
+
+export interface ChannelView {
+  vaultAddress: string;
+  vaultId: string;
+  termBlocks: number;
+  exitTxHex: string;
+  l1BalanceSats: string | null;
+  latestState: DefaultOutcome | null;
+}
+
 export interface PositionView {
   id: string;
   borrower: string;
@@ -29,6 +49,7 @@ export interface PositionView {
   isLiquidatable: boolean;
   lltvWad: string;
   currentPriceLoanUnitsPerBtc: string;
+  channel?: ChannelView | null;
 }
 
 export interface RiskBucket {
