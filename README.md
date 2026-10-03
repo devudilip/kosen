@@ -124,7 +124,7 @@ Set `ANTHROPIC_API_KEY` for the AI layer. Flip to signet with `TACHI_NETWORK=sig
 
 ## Demo
 
-**[▶ Watch the 2.5-minute demo](https://github.com/devudilip/kosen/raw/main/demo/kosen-demo.mp4)** · [screenshots](demo/README.md)
+**[▶ Watch the 2.5-minute demo](https://github.com/devudilip/kosen/blob/main/demo/kosen-demo.mp4)** · [screenshots](demo/README.md)
 
 [![position](demo/03-position.png)](demo/README.md)
 

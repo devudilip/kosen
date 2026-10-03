@@ -1,6 +1,6 @@
 # Kōsen — demo
 
-**Video (2:31):** [kosen-demo.mp4](https://github.com/devudilip/kosen/raw/main/demo/kosen-demo.mp4) — click to play in the browser.
+**Video (2:31):** [kosen-demo.mp4](https://github.com/devudilip/kosen/blob/main/demo/kosen-demo.mp4) — click to play in the browser.
 
 Recorded 2026-10-03 with the engine in `KOSEN_MODE=tachi` (a real MuSig2 vault opened on `rpc-regtest.tachibtc.com` at startup) plus a local `bitcoind -regtest`, followed by `pnpm demo:exit`. Every txid shown is real.
 
